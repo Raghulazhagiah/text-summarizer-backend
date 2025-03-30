@@ -38,6 +38,13 @@ function summarizeText(text, numSentences = 3) {
 
 // Main handler for all requests
 module.exports = async (req, res) => {
+    console.log('Request received:', {
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: req.body
+    });
+
     // Enable CORS
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -58,12 +65,15 @@ module.exports = async (req, res) => {
         let body;
         if (req.method === 'POST') {
             try {
-                body = JSON.parse(req.body);
+                // In Vercel, the body is already parsed if Content-Type is application/json
+                body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+                console.log('Parsed body:', body);
             } catch (e) {
                 console.error('Error parsing request body:', e);
                 return res.status(400).json({ 
                     error: 'Invalid JSON in request body',
-                    details: e.message 
+                    details: e.message,
+                    receivedBody: req.body
                 });
             }
         }
@@ -72,7 +82,12 @@ module.exports = async (req, res) => {
             return res.status(200).json({
                 status: 'ok',
                 geminiAvailable: !!genAI,
-                environment: process.env.NODE_ENV
+                environment: process.env.NODE_ENV,
+                nodeVersion: process.version,
+                envVars: {
+                    hasGeminiKey: !!process.env.GEMINI_API_KEY,
+                    nodeEnv: process.env.NODE_ENV
+                }
             });
         }
 
@@ -80,7 +95,8 @@ module.exports = async (req, res) => {
             if (!body || !body.text) {
                 return res.status(400).json({ 
                     error: 'Text is required in request body',
-                    receivedBody: body 
+                    receivedBody: body,
+                    bodyType: typeof body
                 });
             }
 
@@ -119,10 +135,10 @@ module.exports = async (req, res) => {
         console.error('Error in main handler:', error);
         // Fallback to alternative method if Gemini fails
         try {
-            if (!req.body || !req.body.text) {
+            if (!body || !body.text) {
                 throw new Error('No text provided for fallback');
             }
-            const summary = summarizeText(req.body.text);
+            const summary = summarizeText(body.text);
             return res.status(200).json({ 
                 summary,
                 method: 'tfidf',
@@ -133,7 +149,13 @@ module.exports = async (req, res) => {
             return res.status(500).json({ 
                 error: 'Failed to generate summary',
                 details: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+                requestInfo: {
+                    method: req.method,
+                    url: req.url,
+                    bodyType: typeof req.body,
+                    hasBody: !!req.body
+                }
             });
         }
     }
