@@ -54,23 +54,43 @@ module.exports = async (req, res) => {
     }
 
     try {
+        // Parse request body if it's a POST request
+        let body;
+        if (req.method === 'POST') {
+            try {
+                body = JSON.parse(req.body);
+            } catch (e) {
+                console.error('Error parsing request body:', e);
+                return res.status(400).json({ 
+                    error: 'Invalid JSON in request body',
+                    details: e.message 
+                });
+            }
+        }
+
         if (req.method === 'GET' && req.url === '/api/health') {
             return res.status(200).json({
                 status: 'ok',
-                geminiAvailable: !!genAI
+                geminiAvailable: !!genAI,
+                environment: process.env.NODE_ENV
             });
         }
 
         if (req.method === 'POST' && req.url === '/api/summarize') {
-            const { text, method = 'auto' } = req.body;
-            
-            if (!text) {
-                return res.status(400).json({ error: 'Text is required' });
+            if (!body || !body.text) {
+                return res.status(400).json({ 
+                    error: 'Text is required in request body',
+                    receivedBody: body 
+                });
             }
 
+            const { text, method = 'auto' } = body;
+            console.log('Processing request with method:', method);
+            
             let summary;
             
             if (method === 'gemini' && genAI) {
+                console.log('Using Gemini AI for summarization');
                 // Use Gemini AI
                 const model = genAI.getGenerativeModel({ model: "gemini-pro" });
                 const prompt = `Please provide a concise summary of the following text:\n\n${text}`;
@@ -78,6 +98,7 @@ module.exports = async (req, res) => {
                 const response = await result.response;
                 summary = response.text();
             } else {
+                console.log('Using TF-IDF for summarization');
                 // Use alternative method
                 summary = summarizeText(text);
             }
@@ -89,11 +110,18 @@ module.exports = async (req, res) => {
         }
 
         // Handle 404 for unknown routes
-        return res.status(404).json({ error: 'Not Found' });
+        return res.status(404).json({ 
+            error: 'Not Found',
+            path: req.url,
+            method: req.method
+        });
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error in main handler:', error);
         // Fallback to alternative method if Gemini fails
         try {
+            if (!req.body || !req.body.text) {
+                throw new Error('No text provided for fallback');
+            }
             const summary = summarizeText(req.body.text);
             return res.status(200).json({ 
                 summary,
@@ -101,9 +129,11 @@ module.exports = async (req, res) => {
                 note: 'Fell back to alternative method due to Gemini API error'
             });
         } catch (fallbackError) {
+            console.error('Fallback error:', fallbackError);
             return res.status(500).json({ 
                 error: 'Failed to generate summary',
-                details: error.message
+                details: error.message,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
             });
         }
     }

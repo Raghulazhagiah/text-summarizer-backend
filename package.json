@@ -1,0 +1,18 @@
+{
+  "name": "text-summarizer-backend",
+  "version": "1.0.0",
+  "description": "Text summarization API using Gemini AI and TF-IDF",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js",
+    "dev": "nodemon api/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.2.0",
+    "dotenv": "^16.4.1",
+    "natural": "^6.10.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 
