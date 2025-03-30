@@ -4,63 +4,80 @@ require('dotenv').config();
 
 // Initialize Gemini AI if API key is available
 let genAI = null;
-if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here') {
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+try {
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here') {
+        genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        console.log('Gemini AI initialized successfully');
+    } else {
+        console.log('Gemini API key not found or invalid');
+    }
+} catch (error) {
+    console.error('Error initializing Gemini AI:', error);
 }
 
 // Alternative summarization function using TF-IDF
 function summarizeText(text, numSentences = 3) {
-    const tokenizer = new natural.SentenceTokenizer();
-    const textSentences = tokenizer.tokenize(text);
-    
-    if (textSentences.length <= numSentences) {
-        return text;
+    try {
+        const tokenizer = new natural.SentenceTokenizer();
+        const textSentences = tokenizer.tokenize(text);
+        
+        if (textSentences.length <= numSentences) {
+            return text;
+        }
+
+        const tfidf = new natural.TfIdf();
+        tfidf.addDocument(text);
+
+        // Calculate sentence scores
+        const sentenceScores = textSentences.map((sentence, index) => {
+            const score = tfidf.tfidf(sentence, 0);
+            return { sentence, score, index };
+        });
+
+        // Sort sentences by score and get top N
+        const topSentences = sentenceScores
+            .sort((a, b) => b.score - a.score)
+            .slice(0, numSentences)
+            .sort((a, b) => a.index - b.index)
+            .map(item => item.sentence);
+
+        return topSentences.join(' ');
+    } catch (error) {
+        console.error('Error in summarizeText:', error);
+        throw error;
     }
-
-    const tfidf = new natural.TfIdf();
-    tfidf.addDocument(text);
-
-    // Calculate sentence scores
-    const sentenceScores = textSentences.map((sentence, index) => {
-        const score = tfidf.tfidf(sentence, 0);
-        return { sentence, score, index };
-    });
-
-    // Sort sentences by score and get top N
-    const topSentences = sentenceScores
-        .sort((a, b) => b.score - a.score)
-        .slice(0, numSentences)
-        .sort((a, b) => a.index - b.index)
-        .map(item => item.sentence);
-
-    return topSentences.join(' ');
 }
 
 // Main handler for all requests
 module.exports = async (req, res) => {
-    console.log('Request received:', {
-        method: req.method,
-        url: req.url,
-        headers: req.headers,
-        body: req.body
-    });
-
-    // Enable CORS
-    res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader(
-        'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-    );
-
-    // Handle OPTIONS request for CORS
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
-
     try {
+        console.log('Request received:', {
+            method: req.method,
+            url: req.url,
+            headers: req.headers,
+            body: req.body,
+            env: {
+                nodeEnv: process.env.NODE_ENV,
+                hasGeminiKey: !!process.env.GEMINI_API_KEY,
+                nodeVersion: process.version
+            }
+        });
+
+        // Enable CORS
+        res.setHeader('Access-Control-Allow-Credentials', true);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+        res.setHeader(
+            'Access-Control-Allow-Headers',
+            'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+        );
+
+        // Handle OPTIONS request for CORS
+        if (req.method === 'OPTIONS') {
+            res.status(200).end();
+            return;
+        }
+
         // Handle root URL
         if (req.url === '/' || req.url === '') {
             return res.status(200).json({
@@ -101,16 +118,32 @@ module.exports = async (req, res) => {
         }
 
         if (req.method === 'GET' && req.url === '/api/health') {
-            return res.status(200).json({
-                status: 'ok',
-                geminiAvailable: !!genAI,
-                environment: process.env.NODE_ENV,
-                nodeVersion: process.version,
-                envVars: {
-                    hasGeminiKey: !!process.env.GEMINI_API_KEY,
-                    nodeEnv: process.env.NODE_ENV
-                }
-            });
+            try {
+                const healthResponse = {
+                    status: 'ok',
+                    geminiAvailable: !!genAI,
+                    environment: process.env.NODE_ENV,
+                    nodeVersion: process.version,
+                    envVars: {
+                        hasGeminiKey: !!process.env.GEMINI_API_KEY,
+                        nodeEnv: process.env.NODE_ENV
+                    },
+                    system: {
+                        uptime: process.uptime(),
+                        memoryUsage: process.memoryUsage(),
+                        platform: process.platform
+                    }
+                };
+                console.log('Health check response:', healthResponse);
+                return res.status(200).json(healthResponse);
+            } catch (healthError) {
+                console.error('Error in health check:', healthError);
+                return res.status(500).json({
+                    error: 'Health check failed',
+                    details: healthError.message,
+                    stack: process.env.NODE_ENV === 'development' ? healthError.stack : undefined
+                });
+            }
         }
 
         if (req.method === 'POST' && req.url === '/api/summarize') {
