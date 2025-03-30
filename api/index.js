@@ -1,15 +1,6 @@
-const express = require('express');
-const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const natural = require('natural');
 require('dotenv').config();
-
-const app = express();
-const port = process.env.PORT || 3000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
 
 // Initialize Gemini AI if API key is available
 let genAI = null;
@@ -45,58 +36,75 @@ function summarizeText(text, numSentences = 3) {
     return topSentences.join(' ');
 }
 
-// Summarization endpoint
-app.post('/api/summarize', async (req, res) => {
+// Main handler for all requests
+module.exports = async (req, res) => {
+    // Enable CORS
+    res.setHeader('Access-Control-Allow-Credentials', true);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    );
+
+    // Handle OPTIONS request for CORS
+    if (req.method === 'OPTIONS') {
+        res.status(200).end();
+        return;
+    }
+
     try {
-        const { text, method = 'auto' } = req.body;
-        
-        if (!text) {
-            return res.status(400).json({ error: 'Text is required' });
+        if (req.method === 'GET' && req.url === '/api/health') {
+            return res.status(200).json({
+                status: 'ok',
+                geminiAvailable: !!genAI
+            });
         }
 
-        let summary;
-        
-        if (method === 'gemini' && genAI) {
-            // Use Gemini AI
-            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-            const prompt = `Please provide a concise summary of the following text:\n\n${text}`;
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            summary = response.text();
-        } else {
-            // Use alternative method
-            summary = summarizeText(text);
+        if (req.method === 'POST' && req.url === '/api/summarize') {
+            const { text, method = 'auto' } = req.body;
+            
+            if (!text) {
+                return res.status(400).json({ error: 'Text is required' });
+            }
+
+            let summary;
+            
+            if (method === 'gemini' && genAI) {
+                // Use Gemini AI
+                const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+                const prompt = `Please provide a concise summary of the following text:\n\n${text}`;
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                summary = response.text();
+            } else {
+                // Use alternative method
+                summary = summarizeText(text);
+            }
+
+            return res.status(200).json({ 
+                summary,
+                method: method === 'gemini' && genAI ? 'gemini' : 'tfidf'
+            });
         }
 
-        res.json({ 
-            summary,
-            method: method === 'gemini' && genAI ? 'gemini' : 'tfidf'
-        });
+        // Handle 404 for unknown routes
+        return res.status(404).json({ error: 'Not Found' });
     } catch (error) {
         console.error('Error:', error);
         // Fallback to alternative method if Gemini fails
         try {
             const summary = summarizeText(req.body.text);
-            res.json({ 
+            return res.status(200).json({ 
                 summary,
                 method: 'tfidf',
                 note: 'Fell back to alternative method due to Gemini API error'
             });
         } catch (fallbackError) {
-            res.status(500).json({ error: 'Failed to generate summary' });
+            return res.status(500).json({ 
+                error: 'Failed to generate summary',
+                details: error.message
+            });
         }
     }
-});
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'ok',
-        geminiAvailable: !!genAI
-    });
-});
-
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-    console.log(`Gemini API ${genAI ? 'is' : 'is not'} available`);
-}); 
+}; 
