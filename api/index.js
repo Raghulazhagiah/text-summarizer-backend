@@ -61,6 +61,28 @@ module.exports = async (req, res) => {
     }
 
     try {
+        // Handle root URL
+        if (req.url === '/' || req.url === '') {
+            return res.status(200).json({
+                status: 'ok',
+                message: 'Text Summarizer API is running',
+                endpoints: {
+                    health: '/api/health',
+                    summarize: '/api/summarize (POST)'
+                },
+                usage: {
+                    summarize: {
+                        method: 'POST',
+                        url: '/api/summarize',
+                        body: {
+                            text: 'Your text to summarize',
+                            method: 'auto' // or 'gemini' or 'tfidf'
+                        }
+                    }
+                }
+            });
+        }
+
         // Parse request body if it's a POST request
         let body;
         if (req.method === 'POST') {
@@ -96,7 +118,11 @@ module.exports = async (req, res) => {
                 return res.status(400).json({ 
                     error: 'Text is required in request body',
                     receivedBody: body,
-                    bodyType: typeof body
+                    bodyType: typeof body,
+                    example: {
+                        text: 'Your text to summarize',
+                        method: 'auto'
+                    }
                 });
             }
 
@@ -129,7 +155,12 @@ module.exports = async (req, res) => {
         return res.status(404).json({ 
             error: 'Not Found',
             path: req.url,
-            method: req.method
+            method: req.method,
+            availableEndpoints: {
+                root: '/',
+                health: '/api/health',
+                summarize: '/api/summarize (POST)'
+            }
         });
     } catch (error) {
         console.error('Error in main handler:', error);
